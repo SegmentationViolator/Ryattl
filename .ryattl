@@ -1,3 +1,0 @@
-minset VF to "the number of rows that either collide with another sprite or are clipped by the bottom of the screen" when SuperChip is in hi-res mode
-minimplement instruction 00BN for SuperChip
-minimplement instructions 00CN, 00FB, 00FC for SuperChip
