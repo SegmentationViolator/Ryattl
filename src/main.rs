@@ -170,37 +170,26 @@ fn internal_main() -> Result<(), String> {
             priority,
             task: message,
         } => {
-            'block: {
-                let task = Task {
-                    message: message.replace('\x1F', " "),
-                    priority,
-                };
+            let task = Task {
+                message: message.replace('\x1F', " "),
+                priority,
+            };
 
-                if priority == Priority::Max {
-                    tasklist.push(task);
-                    break 'block;
-                }
+            let mut begin = 0;
+            let mut end = tasklist.len();
 
-                let mut begin = 0;
-                let mut end = tasklist.len();
-
-                while begin < end {
-                    let pivot = (begin + end) / 2;
-                    match tasklist[pivot].priority.cmp(&task.priority) {
-                        cmp::Ordering::Less => begin = pivot + 1,
-                        cmp::Ordering::Equal => break,
-                        cmp::Ordering::Greater => end = pivot,
-                    }
-                }
+            while begin < end {
                 let pivot = (begin + end) / 2;
-
-                if pivot == tasklist.len() {
-                    tasklist.push(task);
-                    break 'block;
+                match tasklist[pivot].priority.cmp(&task.priority) {
+                    cmp::Ordering::Less => {
+                        begin = pivot + 1;
+                    },
+                    cmp::Ordering::Equal | cmp::Ordering::Greater => end = pivot,
                 }
-
-                tasklist.insert(pivot, task);
             }
+
+            let pivot = (begin + end) / 2;
+            tasklist.insert(pivot, task);
 
             println!("{} a new task", "Added".green().bold());
         }
@@ -262,7 +251,13 @@ fn internal_main() -> Result<(), String> {
             let tasklist_len = tasklist.len();
 
             if task_id > tasklist_len {
-                return Err("".to_owned());
+                return Err(format!(
+                    "invalid value '{}' for '{}': expected a value less than or equal to {}\n\nFor more information, try '{}'.",
+                    task_id.to_string().yellow(),
+                    "<TASK_ID>".bold(),
+                    tasklist.len(),
+                    "--help".bold(),
+                ));
             }
 
             tasklist.remove(tasklist_len - task_id);
