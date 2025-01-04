@@ -183,22 +183,16 @@ fn internal_main() -> Result<(), String> {
 
                 let mut begin = 0;
                 let mut end = tasklist.len();
-                let mut pivot = (begin + end) / 2;
 
                 while begin < end {
-                    pivot = (begin + end) / 2;
+                    let pivot = (begin + end) / 2;
                     match tasklist[pivot].priority.cmp(&task.priority) {
-                        cmp::Ordering::Less => {
-                            begin = pivot + 1;
-                            pivot += 1;
-                        }
-                        cmp::Ordering::Equal => {
-                            pivot += 1;
-                            break;
-                        }
+                        cmp::Ordering::Less => begin = pivot + 1,
+                        cmp::Ordering::Equal => break,
                         cmp::Ordering::Greater => end = pivot,
                     }
                 }
+                let pivot = (begin + end) / 2;
 
                 if pivot == tasklist.len() {
                     tasklist.push(task);
@@ -219,7 +213,7 @@ fn internal_main() -> Result<(), String> {
 
             let mut buffer = String::new();
 
-            for (index, task) in tasklist.iter().enumerate() {
+            for (index, task) in tasklist.iter().rev().enumerate() {
                 buffer.push_str(&format!(
                     " {:^width$} | {}\n",
                     (index + 1).to_string().yellow(),
@@ -234,7 +228,9 @@ fn internal_main() -> Result<(), String> {
         }
 
         Command::Modify { priority, task_id } => {
-            if task_id > tasklist.len() {
+            let tasklist_len = tasklist.len();
+
+            if task_id > tasklist_len {
                 return Err(format!(
                     "invalid value '{}' for '{}': expected a value less than or equal to {}\n\nFor more information, try '{}'.",
                     task_id.to_string().yellow(),
@@ -244,7 +240,7 @@ fn internal_main() -> Result<(), String> {
                 ));
             }
 
-            let task = unsafe { tasklist.get_unchecked_mut(task_id - 1) };
+            let task = unsafe { tasklist.get_unchecked_mut(tasklist_len - task_id) };
             let is_sorted = priority.is_none();
 
             if let Some(priority) = priority {
@@ -263,11 +259,13 @@ fn internal_main() -> Result<(), String> {
         }
 
         Command::Remove { task_id } => {
-            if task_id > tasklist.len() {
+            let tasklist_len = tasklist.len();
+
+            if task_id > tasklist_len {
                 return Err("".to_owned());
             }
 
-            tasklist.remove(task_id - 1);
+            tasklist.remove(tasklist_len - task_id);
 
             println!("{} the specified task", "Removed".green().bold());
         }
