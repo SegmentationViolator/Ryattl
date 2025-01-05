@@ -21,9 +21,11 @@ use std::{
 
 use clap::Parser;
 use colored::Colorize;
-use parsing::{RECORD_SEPERATOR, UNIT_SEPERATOR};
 
 mod parsing;
+use icu_locid::locale;
+use jiff::tz;
+use parsing::{RECORD_SEPARATOR, UNIT_SEPARATOR};
 
 const TASKLIST_FILENAME: &str = ".ryattl";
 
@@ -45,6 +47,13 @@ enum Command {
 
         /// Message associated with the task
         task: String,
+    },
+
+    /// Display detailed information about a task
+    Info {
+        /// ID associated with the task
+        #[arg(value_parser = parsing::parse_task_id)]
+        task_id: usize,
     },
 
     /// Initiate a new task list in the current directory
@@ -82,6 +91,7 @@ enum Priority {
 struct Task {
     priority: Priority,
     message: String,
+    created_on: jiff::Zoned,
 }
 
 impl fmt::Display for Priority {
@@ -137,7 +147,7 @@ fn internal_main() -> Result<(), String> {
                     "[y/N]:".cyan().bold(),
                 );
 
-                io::stdout().flush().map_err(|err| err.to_string())?;
+                io::stderr().flush().map_err(|err| err.to_string())?;
 
                 let mut buffer = String::with_capacity(1);
 
@@ -172,11 +182,15 @@ fn internal_main() -> Result<(), String> {
             task: message,
         } => {
             let task = Task {
-                message: message.chars().map(|c| match c {
-                    RECORD_SEPERATOR | UNIT_SEPERATOR => ' ',
-                    c => c,
-                }).collect(),
+                message: message
+                    .chars()
+                    .map(|c| match c {
+                        RECORD_SEPARATOR | UNIT_SEPARATOR => ' ',
+                        c => c,
+                    })
+                    .collect(),
                 priority,
+                created_on: jiff::Zoned::now(),
             };
 
             let mut begin = 0;
@@ -187,7 +201,7 @@ fn internal_main() -> Result<(), String> {
                 match tasklist[pivot].priority.cmp(&task.priority) {
                     cmp::Ordering::Less => {
                         begin = pivot + 1;
-                    },
+                    }
                     cmp::Ordering::Equal | cmp::Ordering::Greater => end = pivot,
                 }
             }
@@ -198,9 +212,62 @@ fn internal_main() -> Result<(), String> {
             println!("{} a new task", "Added".green().bold());
         }
 
+        Command::Info { task_id } => {
+            let tasklist_len = tasklist.len();
+
+            if task_id > tasklist_len {
+                return Err(build_invalid_task_id_error(task_id, tasklist_len));
+            }
+
+            let task = unsafe { tasklist.get_unchecked(tasklist_len - task_id) };
+            let created_on = {
+                let created_on = task
+                    .created_on
+                    .with_time_zone(tz::TimeZone::system())
+                    .datetime();
+
+                // Create ICU datetime.
+                let datetime = icu_calendar::DateTime::try_new_iso_datetime(
+                    i32::from(created_on.year()),
+                    // These unwraps are all guaranteed to be
+                    // correct because Jiff's bounds on allowable
+                    // values fit within icu's bounds.
+                    u8::try_from(created_on.month()).unwrap(),
+                    u8::try_from(created_on.day()).unwrap(),
+                    u8::try_from(created_on.hour()).unwrap(),
+                    u8::try_from(created_on.minute()).unwrap(),
+                    u8::try_from(created_on.second()).unwrap(),
+                ).unwrap();
+
+                icu_calendar::DateTime::new_from_iso(datetime, icu_calendar::Gregorian)
+            };
+
+            let locale = sys_locale::get_locale()
+                .and_then(|locale_string| locale_string.parse::<icu_locid::Locale>().ok())
+                .unwrap_or(locale!("en"));
+            let formatter = icu_datetime::TypedDateTimeFormatter::try_new(
+                &locale.clone().into(),
+                Default::default(),
+            )
+            .map_err(|err| err.to_string())?;
+
+            println!(
+                " {:<width$} {}\n {:<width$} {}\n {:<width$} {}\n {:<width$} {}",
+                "ID:".bold(),
+                task_id.to_string().yellow(),
+                "Priority:".bold(),
+                task.priority.to_string().cyan(),
+                "Message:".bold(),
+                task.message.green(),
+                "Date:".bold(),
+                formatter.format(&created_on).to_string().blue(),
+                width = 10,
+            )
+        }
+
         Command::List => {
             if tasklist.is_empty() {
-                println!("The task list is empty");
+                eprintln!("The task list is empty");
                 return Ok(());
             }
 
@@ -224,13 +291,7 @@ fn internal_main() -> Result<(), String> {
             let tasklist_len = tasklist.len();
 
             if task_id > tasklist_len {
-                return Err(format!(
-                    "invalid value '{}' for '{}': expected a value less than or equal to {}\n\nFor more information, try '{}'.",
-                    task_id.to_string().yellow(),
-                    "<TASK_ID>".bold(),
-                    tasklist.len(),
-                    "--help".bold(),
-                ));
+                return Err(build_invalid_task_id_error(task_id, tasklist_len));
             }
 
             let task = unsafe { tasklist.get_unchecked_mut(tasklist_len - task_id) };
@@ -255,17 +316,10 @@ fn internal_main() -> Result<(), String> {
             let tasklist_len = tasklist.len();
 
             if task_id > tasklist_len {
-                return Err(format!(
-                    "invalid value '{}' for '{}': expected a value less than or equal to {}\n\nFor more information, try '{}'.",
-                    task_id.to_string().yellow(),
-                    "<TASK_ID>".bold(),
-                    tasklist.len(),
-                    "--help".bold(),
-                ));
+                return Err(build_invalid_task_id_error(task_id, tasklist_len));
             }
 
             tasklist.remove(tasklist_len - task_id);
-
             println!("{} the specified task", "Removed".green().bold());
         }
 
@@ -307,11 +361,28 @@ fn get_tasklist_path() -> Result<path::PathBuf, String> {
     Ok(tasklist_dir.join(TASKLIST_FILENAME))
 }
 
+fn build_invalid_task_id_error(task_id: usize, tasklist_len: usize) -> String {
+    format!(
+        "invalid value '{}' for '{}': expected a value less than or equal to {}\n\nFor more information, try '{}'.",
+        task_id.to_string().yellow(),
+        "<TASK_ID>".bold(),
+        tasklist_len,
+        "--help".bold(),
+    )
+}
+
 fn save_tasklist(tasklist_path: path::PathBuf, tasklist: Vec<Task>) -> Result<(), String> {
     let mut buffer = String::new();
 
     for task in tasklist.into_iter() {
-        buffer.push_str(&format!("{}\x1F{}\n", task.priority, task.message));
+        buffer.push_str(&format!(
+            "{}{US}{}{US}{}{RS}",
+            task.priority,
+            task.message,
+            task.created_on,
+            US = UNIT_SEPARATOR,
+            RS = RECORD_SEPARATOR,
+        ));
     }
 
     let mut tasklist_file = fs::File::create(tasklist_path).map_err(|err| err.to_string())?;

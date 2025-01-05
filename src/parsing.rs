@@ -17,8 +17,8 @@ use std::num;
 
 use crate::{Priority, Task};
 
-pub const RECORD_SEPERATOR: char = '\n';
-pub const UNIT_SEPERATOR: char = '\x1F';
+pub const RECORD_SEPARATOR: char = '\n';
+pub const UNIT_SEPARATOR: char = '\x1F';
 
 pub fn parse_priority(string: &str) -> Result<Priority, String> {
     match string.trim() {
@@ -37,19 +37,24 @@ pub fn parse_priority(string: &str) -> Result<Priority, String> {
 }
 
 pub fn parse_task(string: &str) -> Result<Task, String> {
-    let mut items = string.splitn(2, UNIT_SEPERATOR);
+    let mut items = string.splitn(3, UNIT_SEPARATOR);
 
     let Some(priority) = items.next().and_then(|string| parse_priority(string).ok()) else {
-        return Err("the task list file is corrupted".to_owned());
+        return Err("the task list file is corrupted: couldn't parse priority".to_owned());
     };
 
     let Some(message) = items.next() else {
-        return Err("the task list file is corrupted".to_owned());
+        return Err("the task list file is corrupted: couldn't parse message".to_owned());
+    };
+
+    let Some(created_on) = items.next().and_then(|string| string.parse().ok()) else {
+        return Err("the task list file is corrupted: couldn't parse creation date".to_owned());
     };
 
     Ok(Task {
         priority,
         message: message.to_owned(),
+        created_on,
     })
 }
 
