@@ -17,6 +17,9 @@ use std::num;
 
 use crate::{Priority, Task};
 
+pub const RECORD_SEPERATOR: char = '\n';
+pub const UNIT_SEPERATOR: char = '\x1F';
+
 pub fn parse_priority(string: &str) -> Result<Priority, String> {
     match string.trim() {
         "max" => Ok(Priority::Max),
@@ -34,7 +37,7 @@ pub fn parse_priority(string: &str) -> Result<Priority, String> {
 }
 
 pub fn parse_task(string: &str) -> Result<Task, String> {
-    let mut items = string.splitn(2, '\x1F');
+    let mut items = string.splitn(2, UNIT_SEPERATOR);
 
     let Some(priority) = items.next().and_then(|string| parse_priority(string).ok()) else {
         return Err("the task list file is corrupted".to_owned());

@@ -21,6 +21,7 @@ use std::{
 
 use clap::Parser;
 use colored::Colorize;
+use parsing::{RECORD_SEPERATOR, UNIT_SEPERATOR};
 
 mod parsing;
 
@@ -171,7 +172,10 @@ fn internal_main() -> Result<(), String> {
             task: message,
         } => {
             let task = Task {
-                message: message.replace('\x1F', " "),
+                message: message.chars().map(|c| match c {
+                    RECORD_SEPERATOR | UNIT_SEPERATOR => ' ',
+                    c => c,
+                }).collect(),
                 priority,
             };
 
